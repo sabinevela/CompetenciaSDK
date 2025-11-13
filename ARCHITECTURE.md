@@ -1,0 +1,648 @@
+# CompetenciaSDK - Architecture Documentation
+
+## System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    CompetenciaSDK Application                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────────┐          ┌──────────────────┐             │
+│  │  Expo Client    │          │  Web Dashboard   │             │
+│  │  (React Native) │          │  (future)        │             │
+│  └────────┬────────┘          └──────────────────┘             │
+│           │                                                     │
+│           └──────────────┬──────────────────────────────────┐   │
+│                          │                                   │   │
+│                          ▼                                   │   │
+│              ┌────────────────────────┐                      │   │
+│              │  Express.js Backend    │                      │   │
+│              │  (Node.js 18+)         │                      │   │
+│              │  localhost:4000        │                      │   │
+│              └────────────┬───────────┘                      │   │
+│                           │                                  │   │
+│         ┌─────────────────┼─────────────────────┐           │   │
+│         │                 │                     │           │   │
+│         ▼                 ▼                     ▼           │   │
+│  ┌─────────────┐   ┌──────────────┐   ┌──────────────┐     │   │
+│  │ OpenWeather │   │  OpenAI API  │   │ In-Memory    │     │   │
+│  │ API Proxy   │   │  (ChatGPT)   │   │ Feed Storage │     │   │
+│  └─────────────┘   └──────────────┘   └──────────────┘     │   │
+│         │                 │                     │           │   │
+│         └─────────────────┼─────────────────────┘           │   │
+│                           │                                  │   │
+│              ┌────────────▼───────────┐                      │   │
+│              │  External Services     │                      │   │
+│              │  - Supabase (Auth)     │                      │   │
+│              │  - IGEPN Data (Quakes) │                      │   │
+│              └────────────────────────┘                      │   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Component Breakdown
+
+### 1. Frontend (Expo + React Native)
+
+**Location:** `CompetenciaSDK/` root directory
+
+**Key Screens:**
+```
+Navigation Stack (11 screens)
+├── Authentication
+│   ├── LoginScreen.tsx
+│   └── RegisterScreen.tsx
+├── Main Features
+│   ├── HomeScreen.tsx (FirstPage.tsx refactored)
+│   ├── FeedScreen.tsx (Community reports)
+│   ├── VolcanoesScreen.tsx (Volcano monitoring)
+│   ├── PredictScreen.tsx (AI risk prediction)
+│   └── ProfileScreen.tsx (User profile)
+└── Educational
+    ├── MapaScreen.tsx (Map view - Mapbox placeholder)
+    ├── EducacionScreen.tsx (Climate education)
+    ├── EmergenciaScreen.tsx (Emergency planning)
+    └── AccionesScreen.tsx (Sustainability actions)
+```
+
+**Architecture Pattern:**
+```
+App.tsx
+  ↓
+Navigation.tsx (Stack Navigator)
+  ↓
+  ├─→ Screen (LoginScreen, FirstPage, etc.)
+  │    ├─→ Components (Header, Card, etc.)
+  │    └─→ Services (auth.service.ts, firestore.service.ts)
+  │
+  ├─→ config.ts (SERVER_URL configuration)
+  │
+  └─→ contexts/ (AuthContext for user state)
+```
+
+**Data Flow:**
+```
+User Action (button tap)
+  ↓
+Screen component (e.g., FirstPage.tsx)
+  ↓
+fetch(`${SERVER_URL}/api/weather?lat=...&lon=...`)
+  ↓
+Backend processes
+  ↓
+Response JSON
+  ↓
+setState → re-render UI
+```
+
+**Dependencies:**
+- Expo 54 (managed by EAS)
+- React Navigation (Stack)
+- Supabase (authentication)
+- axios/fetch (HTTP client)
+- expo-location (geolocation)
+- linear-gradient (UI styling)
+
+---
+
+### 2. Backend (Express.js)
+
+**Location:** `CompetenciaSDK/server/`
+
+**Express Server Structure:**
+```
+server/
+├── index.js (main server + 5 endpoints)
+├── scheduler.js (cron jobs)
+├── package.json (dependencies)
+└── .env (API keys, secrets)
+```
+
+**Endpoints:**
+```
+GET  /api/weather?lat=X&lon=Y
+     └─→ Proxies OpenWeatherMap
+     └─→ Returns: { main: {...}, weather: [...], wind: {...} }
+
+POST /api/predict
+     └─→ Input: { location, history, notes }
+     └─→ Calls OpenAI ChatGPT
+     └─→ Returns: { result: { risk_level, probability, message, actions } }
+
+GET  /api/feed
+     └─→ Returns all posts from in-memory storage
+     └─→ Returns: { posts: [...], count: N }
+
+POST /api/feed
+     └─→ Input: { userName, message, coordinates }
+     └─→ Stores post in memory
+     └─→ Returns: { success: true, post: {...} }
+
+GET  /api/volcanoes
+     └─→ Returns Ecuador volcano data from IGEPN
+     └─→ Returns: { volcanoes: [...], source: "IGEPN Ecuador", count: 5 }
+
+GET  /api/alerts
+     └─→ Returns high-risk alerts generated by scheduler
+     └─→ Returns: { alerts: [...], count: N }
+```
+
+**Request/Response Example:**
+```
+Client → GET /api/weather?lat=-0.18&lon=-78.47
+         ↓
+Server → OPENWEATHER_KEY env var
+         ↓
+axios.get('https://api.openweathermap.org/data/2.5/weather?...')
+         ↓
+OpenWeatherMap API
+         ↓
+Server processes response
+         ↓
+Client ← { main: { temp: 18, humidity: 65 }, ... }
+```
+
+**Scheduled Tasks (node-cron):**
+```
+Scheduler.js
+├── Predictions (0 6 12 18 UTC)
+│   ├─→ For each: Quito, Latacunga, Ambato, Riobamba
+│   ├─→ Call OpenAI /api/predict
+│   ├─→ If probability > 70% → create alert
+│   └─→ Store in alerts array
+│
+├── Volcano Check (every hour at :00)
+│   ├─→ Placeholder for IGEPN real-time API
+│   └─→ Currently hardcoded data
+│
+└── Alert Cleanup (daily at 00:00 UTC)
+    ├─→ Remove alerts older than 7 days
+    └─→ Keep database clean
+```
+
+**In-Memory Storage:**
+```javascript
+// Global state (resets on server restart)
+const feed = [
+  {
+    id: "uuid-1234",
+    userName: "Kevin",
+    message: "Lluvia intensa",
+    coordinates: { lat: -0.18, lon: -78.47 },
+    createdAt: "2025-11-13T10:30:00Z"
+  }
+];
+
+const alerts = [
+  {
+    id: "alert-5678",
+    location: "Quito",
+    riskLevel: "alto",
+    probability: 85,
+    message: "...",
+    createdAt: "2025-11-13T06:00:00Z",
+    actions: ["evacuate", ...]
+  }
+];
+```
+
+---
+
+## Data Models
+
+### User
+```typescript
+interface User {
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  coordinates?: { lat: number; lon: number };
+  createdAt: string;
+}
+```
+**Source:** Supabase Auth
+
+---
+
+### Weather
+```typescript
+interface Weather {
+  main: {
+    temp: number;
+    feels_like: number;
+    humidity: number;
+    pressure: number;
+  };
+  weather: Array<{
+    main: string;
+    description: string;
+    icon: string;
+  }>;
+  wind: { speed: number; deg: number };
+  clouds: { all: number };
+}
+```
+**Source:** OpenWeatherMap API
+
+---
+
+### Feed Post
+```typescript
+interface FeedPost {
+  id: string;
+  userId: string;
+  userName: string;
+  message: string;
+  coordinates: {
+    lat: number;
+    lon: number;
+  };
+  createdAt: string;
+}
+```
+**Storage:** In-memory (server/index.js)
+
+---
+
+### Prediction
+```typescript
+interface Prediction {
+  result: {
+    risk_level: "alto" | "medio" | "bajo";
+    probability: number; // 0-100
+    message: string;
+    recommended_actions: string[];
+  };
+}
+```
+**Source:** OpenAI ChatGPT (via /api/predict)
+
+---
+
+### Volcano
+```typescript
+interface Volcano {
+  id: string;
+  name: string;
+  status: "activo" | "observacion" | "dormido";
+  latitude: number;
+  longitude: number;
+  altitude: number;
+  province: string;
+}
+```
+**Data:** IGEPN (Ecuador volcanic institute)
+**Volcanoes:** Cotopaxi, Tungurahua, Chimborazo, Pichincha, Antisana
+
+---
+
+### Alert
+```typescript
+interface Alert {
+  id: string;
+  location: string;
+  riskLevel: "alto" | "medio" | "bajo";
+  probability: number;
+  message: string;
+  createdAt: string;
+  actions: string[];
+}
+```
+**Generated by:** Scheduler (every 6 hours)
+
+---
+
+## API Sequence Diagrams
+
+### Weather Fetching
+```
+User                Frontend              Backend         OpenWeatherMap
+ │                     │                    │                   │
+ ├─ Tap "Home"        │                    │                   │
+ │                     │                    │                   │
+ │                ├─ Get location          │                   │
+ │                │ (lat, lon)             │                   │
+ │                │                        │                   │
+ │                └─ fetch /api/weather?lat=X&lon=Y             │
+ │                     │                    │                   │
+ │                     │              ├─ Extract OPENWEATHER_KEY
+ │                     │              ├─ axios.get(openweather)│
+ │                     │              │                        ├─ Return temp, humidity
+ │                     │              │                        │
+ │                     │              │◄────────────────────────
+ │                     │              │                        │
+ │                     │◄─────────────┤                        │
+ │ {"main": {...}}     │              │                        │
+ │ ◄────────────────────             │                        │
+ │                     │              │                        │
+ └─ Show weather       │              │                        │
+ card                  │              │                        │
+```
+
+### Feed Post Creation
+```
+User              Frontend           Backend          In-Memory Storage
+ │                  │                  │                    │
+ ├─ Tap Feed        │                  │                    │
+ │                  │                  │                    │
+ ├─ Get location    │                  │                    │
+ │                  │                  │                    │
+ ├─ Type message    │                  │                    │
+ │                  │                  │                    │
+ ├─ Tap "Post"      │                  │                    │
+ │                  ├─ POST /api/feed  │                    │
+ │                  │ (user, msg, loc) │                    │
+ │                  │                  ├─ Validate input    │
+ │                  │                  ├─ Create ID (uuid)  │
+ │                  │                  ├─ Add timestamp     │
+ │                  │                  │                    │
+ │                  │                  ├─────────────────────┤
+ │                  │                  │ feed.push({...})   │
+ │                  │                  │                    │
+ │                  │ ◄─ { success: true, post: {...} }      │
+ │                  │                  │                    │
+ │                  ├─ Refresh feed    │                    │
+ │                  ├─ GET /api/feed   │                    │
+ │                  │                  ├─ Return feed array │
+ │                  │ ◄─ { posts: [...], count: 2 }          │
+ │                  │                  │                    │
+ └─ Show new post   │                  │                    │
+ in list            │                  │                    │
+```
+
+### AI Prediction
+```
+User              Frontend           Backend         OpenAI API
+ │                  │                  │                  │
+ ├─ Tap "Predict"   │                  │                  │
+ │                  │                  │                  │
+ ├─ Grant location  │                  │                  │
+ │                  │                  │                  │
+ ├─ Tap "Analyze"   │                  │                  │
+ │                  ├─ POST /api/predict                   │
+ │                  │ (location, notes) │                  │
+ │                  │                  ├─ Build GPT prompt
+ │                  │                  ├─ Extract OPENAI_API_KEY
+ │                  │                  ├─ POST /v1/chat/completions
+ │                  │                  │                  ├─ Process with LLM
+ │                  │                  │                  │
+ │                  │                  │ ◄─ {"choices": [{"message": {...}}]}
+ │                  │                  │                  │
+ │                  │                  ├─ Parse JSON response
+ │                  │                  ├─ Extract risk_level, probability
+ │                  │                  │
+ │                  │ ◄─ { result: { risk_level: "alto", probability: 85, ... } }
+ │                  │                  │                  │
+ │                  ├─ Show risk card   │                  │
+ │                  │ "Alto riesgo..."  │                  │
+ │                  │                  │                  │
+ └─ Read assessment │                  │                  │
+```
+
+---
+
+## Security Architecture
+
+### API Key Protection
+```
+Frontend (Client)                Backend (Server)
+────────────────────           ─────────────────
+No API keys!                   .env file (secrets)
+                               ├─ OPENWEATHER_KEY
+                               ├─ OPENAI_API_KEY
+                               └─ SERVER_URL validation
+
+Flow:
+Client → /api/weather → Server reads OPENWEATHER_KEY from .env
+         Server calls OpenWeatherMap with secret key
+         Server returns public data to client
+```
+
+### Authentication Flow
+```
+Frontend (Expo)          Supabase Auth          Backend (optional auth check)
+──────────────          ─────────────          ──────────────────────────
+email + password  →  Auth service  →  JWT token
+                  ←  Return token   ←
+                                       (token attached to requests)
+                                    ← Validate JWT signature
+                                    ← Check token expiry
+                                    → Grant API access
+```
+
+### CORS Protection
+```
+Express Backend
+├─ CORS enabled for localhost:19006 (Expo web)
+├─ In production: update to actual frontend URL
+└─ Prevents unauthorized domain access
+```
+
+---
+
+## Deployment Architecture
+
+### Local Development
+```
+Developer Machine
+├─ Terminal 1: npm start (Frontend on port 19006)
+├─ Terminal 2: npm run dev (Backend on port 4000)
+└─ Device: Expo Go app connects to localhost:4000
+```
+
+### Heroku Deployment
+```
+GitHub (main branch)
+  ↓
+Heroku (git push heroku main)
+  ↓
+Build: npm install
+  ↓
+Start: npm run start
+  ↓
+Environment: Set OPENAI_API_KEY, OPENWEATHER_KEY via UI
+  ↓
+dyno (lightweight process)
+  ↓
+Frontend: Deployed separately to Vercel/Netlify
+  ├─ Update SERVER_URL in config.ts → https://my-app.herokuapp.com
+  └─ Redeploy frontend
+```
+
+### Vercel Deployment (Frontend)
+```
+Frontend Repository
+  ↓
+Vercel (connected GitHub)
+  ↓
+Build: npm run build (TSX)
+  ↓
+Deploy: Static hosting
+  ↓
+Environment: Set VITE_API_URL → https://my-app.herokuapp.com
+  └─ Frontend .env maps to backend
+```
+
+---
+
+## Data Flow Summary
+
+### 1. User Opens App
+```
+App.tsx
+  ↓
+Navigation.tsx (initialRouteName="LoginScreen")
+  ↓
+LoginScreen (check Supabase auth)
+  ├─ If logged in → FirstPage (HomeScreen)
+  └─ If not → LoginScreen form
+```
+
+### 2. User Views Weather (Home Screen)
+```
+FirstPage.tsx
+  ↓
+useEffect (fetch on mount)
+  ↓
+const location = await Location.getCurrentPositionAsync()
+  ↓
+fetch(`${SERVER_URL}/api/weather?lat=${lat}&lon=${lon}`)
+  ↓
+setState(weather)
+  ↓
+Render weather card with temperature, condition, wind
+```
+
+### 3. User Creates Feed Post
+```
+FeedScreen.tsx
+  ↓
+User types message + location
+  ↓
+fetch(SERVER_URL + /api/feed, {
+  method: 'POST',
+  body: { userName, message, coordinates }
+})
+  ↓
+Backend validates + stores in memory
+  ↓
+GET /api/feed → retrieve all posts
+  ↓
+Render list of posts
+```
+
+### 4. User Requests Prediction
+```
+PredictScreen.tsx
+  ↓
+User taps "Get Prediction"
+  ↓
+Get device location
+  ↓
+fetch(SERVER_URL + /api/predict, {
+  method: 'POST',
+  body: { location, history, notes }
+})
+  ↓
+Backend calls OpenAI GPT-3.5
+  ↓
+Receive risk assessment
+  ↓
+Display: "Alto riesgo de inundaciones - 85% probabilidad"
+```
+
+### 5. Scheduler Generates Alerts
+```
+Server starts
+  ↓
+scheduler.js initialized
+  ↓
+Cron job (0 6 12 18 UTC): Trigger /api/predict for Quito, Latacunga, Ambato, Riobamba
+  ↓
+If probability > 70% → create alert object
+  ↓
+Store in alerts[] array
+  ↓
+GET /api/alerts → clients can fetch recent high-risk alerts
+  ↓
+(Future: push notification via FCM)
+```
+
+---
+
+## Monitoring & Logs
+
+### Server Logs (npm run dev)
+```
+[CRON] Prediction scheduler started
+[CRON] Volcano checker initialized
+[CRON] Alert cleanup scheduled
+
+[API] GET /api/weather?lat=-0.18&lon=-78.47 → 200 OK
+[API] POST /api/feed { userName: "Kevin" } → 201 Created
+[API] POST /api/predict { location: "Quito" } → 200 OK
+
+[SCHEDULER] Running predictions at 06:00 UTC
+[SCHEDULER] Quito risk prediction: alto (85%)
+[SCHEDULER] Latacunga risk prediction: medio (45%)
+[SCHEDULER] Alert created: alert-1234567890
+
+[SCHEDULER] Running alert cleanup
+[SCHEDULER] Removed 2 alerts older than 7 days
+```
+
+### Frontend Logs (Expo)
+```
+[Navigation] Navigating to FeedScreen
+[API] Fetching http://localhost:4000/api/feed
+[API] POST /api/feed completed
+[UI] Updated 4 posts in FlatList
+[ERROR] Network request failed: Connection refused
+[ERROR] Gracefully handling offline state
+```
+
+---
+
+## Scalability & Next Steps
+
+### Current Limitations
+- In-memory feed (resets on restart)
+- No persistent database
+- No push notifications
+- Hardcoded volcano data
+- No user roles/permissions
+- Single server instance
+
+### To Scale to Production
+1. **Database:**
+   - Migrate `feed[]` to PostgreSQL (Supabase)
+   - Migrate `alerts[]` to persistent storage
+   
+2. **Caching:**
+   - Add Redis for weather caching
+   - Cache volcano data updates
+   
+3. **Push Notifications:**
+   - Integrate Firebase Cloud Messaging (FCM)
+   - Send alerts to subscribed users
+   
+4. **Load Balancing:**
+   - Deploy multiple backend instances
+   - Use load balancer (Heroku, AWS)
+   
+5. **Real-time Data:**
+   - WebSockets for live feed updates
+   - Subscribe to IGEPN API for volcano updates
+   
+6. **Monitoring:**
+   - Sentry for error tracking
+   - Datadog for performance monitoring
+   - Cloudflare for DDoS protection
+
+---
+
+**Last Updated:** November 2025  
+**Version:** 1.0 (MVP)

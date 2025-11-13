@@ -82,18 +82,22 @@ export default function RegisterScreen({ navigation }: any) {
       }
 
       Alert.alert(
-        '¡Registro exitoso! 🌱', 
+        '¡Registro exitoso! 🌱',
         `Bienvenida/o ${name}. ${data.user?.email_confirmed_at ? 'Tu cuenta ha sido creada.' : 'Revisa tu correo para confirmar tu cuenta.'}`,
         [
           {
             text: 'Comenzar',
-            onPress: () => navigation.navigate('Login')
+            onPress: () => {
+              // Si quieres que vaya al login:
+              navigation.navigate('Login')
+              // O simplemente no hagas nada y onAuthStateChange lo manejará
+            }
           }
         ]
       );
     } catch (error: any) {
       let errorMessage = 'Ocurrió un error al crear la cuenta';
-      
+
       if (error.message.includes('User already registered')) {
         errorMessage = 'Este correo electrónico ya está registrado';
       } else if (error.message.includes('Invalid email')) {
@@ -101,7 +105,7 @@ export default function RegisterScreen({ navigation }: any) {
       } else if (error.message.includes('Password should be at least')) {
         errorMessage = 'La contraseña es muy débil. Usa al menos 6 caracteres';
       }
-      
+
       Alert.alert('Error de registro', errorMessage);
     } finally {
       setLoading(false);
@@ -111,13 +115,13 @@ export default function RegisterScreen({ navigation }: any) {
   return (
     <View style={styles.container}>
       <View style={styles.topSection}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
           <Ionicons name="chevron-back" size={28} color="#1B5E20" />
         </TouchableOpacity>
-        
+
         <View style={styles.titleSection}>
           <Text style={styles.mainTitle}>¡Únete a nosotros!</Text>
           <Text style={styles.subtitle}>Crea tu cuenta en ClimAct 🌱</Text>
@@ -129,11 +133,11 @@ export default function RegisterScreen({ navigation }: any) {
         </View>
       </View>
 
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
@@ -185,14 +189,14 @@ export default function RegisterScreen({ navigation }: any) {
                   onChangeText={setPassword}
                   editable={!loading}
                 />
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeButton}
                 >
-                  <Ionicons 
-                    name={showPassword ? "eye-off-outline" : "eye-outline"} 
-                    size={22} 
-                    color="#66BB6A" 
+                  <Ionicons
+                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                    size={22}
+                    color="#66BB6A"
                   />
                 </TouchableOpacity>
               </View>
@@ -213,14 +217,14 @@ export default function RegisterScreen({ navigation }: any) {
                   onChangeText={setConfirm}
                   editable={!loading}
                 />
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => setShowConfirm(!showConfirm)}
                   style={styles.eyeButton}
                 >
-                  <Ionicons 
-                    name={showConfirm ? "eye-off-outline" : "eye-outline"} 
-                    size={22} 
-                    color="#66BB6A" 
+                  <Ionicons
+                    name={showConfirm ? "eye-off-outline" : "eye-outline"}
+                    size={22}
+                    color="#66BB6A"
                   />
                 </TouchableOpacity>
               </View>
@@ -233,8 +237,8 @@ export default function RegisterScreen({ navigation }: any) {
               </Text>
             </View>
 
-            <TouchableOpacity 
-              style={[styles.primaryButton, loading && styles.buttonDisabled]} 
+            <TouchableOpacity
+              style={[styles.primaryButton, loading && styles.buttonDisabled]}
               onPress={handleRegister}
               disabled={loading}
               activeOpacity={0.85}
@@ -255,7 +259,7 @@ export default function RegisterScreen({ navigation }: any) {
 
             <View style={styles.registerSection}>
               <Text style={styles.noAccountText}>¿Ya tienes cuenta?</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => navigation.navigate('Login')}
                 disabled={loading}
               >

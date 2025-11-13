@@ -118,7 +118,7 @@ export default function WelcomeScreen({ navigation }: any) {
             <View style={styles.glowEffect} />
           </Animated.View>
           
-          <Text style={styles.appTitle}>Climate Guardian</Text>
+          <Text style={styles.appTitle}>Andes Alert</Text>
           <View style={styles.subtitleContainer}>
             <View style={styles.subtitleDot} />
             <Text style={styles.appSubtitle}>Tu protección climática personal</Text>

@@ -162,7 +162,6 @@ export default function ProfileScreen({ navigation }: any) {
           style: 'destructive',
           onPress: async () => {
             await supabase.auth.signOut()
-            navigation.replace('Login')
           }
         }
       ]

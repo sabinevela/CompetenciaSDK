@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { SERVER_URL } from '../src/config';
 import { supabase } from '../security/supabase';
 
 interface WeatherData {
@@ -115,8 +116,13 @@ export default function HomeScreen({ navigation }: any) {
       const location = await Location.getCurrentPositionAsync({});
       const { latitude, longitude } = location.coords;
 
-      const API_KEY = 'b4a1ed222b7698b16d44ca0070ddf291';
-      const url = `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&appid=${API_KEY}&units=metric&lang=es`;
+      if (!SERVER_URL) {
+        Alert.alert('Configuración', 'No se ha configurado la URL del servidor. Revisa src/config.ts');
+        setLoading(false);
+        return;
+      }
+
+      const url = `${SERVER_URL.replace(/\/$/, '')}/api/weather?lat=${latitude}&lon=${longitude}`;
 
       const response = await fetch(url);
       const data = await response.json();
@@ -138,7 +144,7 @@ export default function HomeScreen({ navigation }: any) {
       setLocation(data.name);
     } catch (error) {
       console.error('Error getting weather:', error);
-      Alert.alert('Error', 'No se pudo cargar el clima. Verifica tu API Key de OpenWeather.');
+      setWeather(null);
     } finally {
       setLoading(false);
     }
@@ -288,6 +294,48 @@ export default function HomeScreen({ navigation }: any) {
         <View style={styles.quickActions}>
           <TouchableOpacity 
             style={styles.actionCard}
+            onPress={() => navigation.navigate('Feed')}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['#00C853', '#00E676']}
+              style={styles.actionGradient}
+            >
+              <Ionicons name="chatbubbles" size={32} color="white" />
+              <Text style={styles.actionText}>Feed{'\n'}Comunitario</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.actionCard}
+            onPress={() => navigation.navigate('Volcanes')}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['#D32F2F', '#F44336']}
+              style={styles.actionGradient}
+            >
+              <Ionicons name="alert-circle" size={32} color="white" />
+              <Text style={styles.actionText}>Volcanes{'\n'}Activos</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.actionCard}
+            onPress={() => navigation.navigate('Predict')}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['#1976D2', '#2196F3']}
+              style={styles.actionGradient}
+            >
+              <Ionicons name="sparkles" size={32} color="white" />
+              <Text style={styles.actionText}>Predicción{'\n'}IA</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.actionCard}
             onPress={() => navigation.navigate('Mapa')}
             activeOpacity={0.8}
           >
@@ -306,7 +354,7 @@ export default function HomeScreen({ navigation }: any) {
             activeOpacity={0.8}
           >
             <LinearGradient
-              colors={['#D32F2F', '#F44336']}
+              colors={['#F57C00', '#FF9800']}
               style={styles.actionGradient}
             >
               <Ionicons name="medical" size={32} color="white" />

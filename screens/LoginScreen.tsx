@@ -10,63 +10,70 @@ export default function LoginScreen({ navigation }: any) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async () => {
-    if (email.trim() === '' || password.trim() === '') {
-      Alert.alert('Campos incompletos', 'Por favor completa todos los campos');
-      return;
-    }
+  // Reemplaza la función handleLogin con esta versión corregida:
 
-    setLoading(true);
-    
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email,
-        password: password,
-      });
+const handleLogin = async () => {
+  if (email.trim() === '' || password.trim() === '') {
+    Alert.alert('Campos incompletos', 'Por favor completa todos los campos');
+    return;
+  }
 
-      if (error) throw error;
+  setLoading(true);
+  
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(), // Agregado trim() para evitar espacios
+      password: password,
+    });
 
-      const { data: existingProfile } = await supabase
+    if (error) throw error;
+
+    // Verificar si existe el perfil
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', data.user.id)
+      .single();
+
+    // Crear perfil si no existe
+    if (!existingProfile) {
+      const { error: profileError } = await supabase
         .from('profiles')
-        .select('id')
-        .eq('id', data.user.id)
-        .single();
+        .insert([
+          {
+            id: data.user.id,
+            full_name: data.user.user_metadata?.full_name || 'Usuario',
+            email: data.user.email,
+            avatar_url: null,
+            created_at: new Date().toISOString(),
+          }
+        ]);
 
-      if (!existingProfile) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert([
-            {
-              id: data.user.id,
-              full_name: data.user.user_metadata?.full_name || 'Usuario',
-              email: data.user.email,
-              avatar_url: null,
-              created_at: new Date().toISOString(),
-            }
-          ]);
-
-        if (profileError) {
-          console.log('Error al crear perfil:', profileError);
-        }
+      if (profileError) {
+        console.log('Error al crear perfil:', profileError);
       }
-
-      navigation.replace('Principal');
-    } catch (error: any) {
-      let errorMessage = 'Ocurrió un error al iniciar sesión';
-      
-      if (error.message.includes('Invalid login credentials')) {
-        errorMessage = 'Credenciales inválidas. Verifica tu correo y contraseña';
-      } else if (error.message.includes('Email not confirmed')) {
-        errorMessage = 'Por favor confirma tu correo electrónico';
-      } else if (error.message.includes('Invalid email')) {
-        errorMessage = 'El correo electrónico no es válido';
-      }
-      
-      Alert.alert('Error de autenticación', errorMessage);
-    } finally {
-      setLoading(false);
     }
-  };
+
+    // ✅ ESTA ES LA LÍNEA QUE FALTABA - Navegar después del login exitoso
+    navigation.replace('Home'); // O el nombre de tu pantalla principal
+    
+  } catch (error: any) {
+    let errorMessage = 'Ocurrió un error al iniciar sesión';
+    
+    if (error.message.includes('Invalid login credentials')) {
+      errorMessage = 'Credenciales inválidas. Verifica tu correo y contraseña';
+    } else if (error.message.includes('Email not confirmed')) {
+      errorMessage = 'Por favor confirma tu correo electrónico';
+    } else if (error.message.includes('Invalid email')) {
+      errorMessage = 'El correo electrónico no es válido';
+    }
+    
+    Alert.alert('Error de autenticación', errorMessage);
+    console.error('Error completo:', error); // Para debugging
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <View style={styles.container}>
