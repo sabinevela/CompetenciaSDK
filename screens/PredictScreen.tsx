@@ -6,6 +6,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { Audio } from 'expo-av';
 import { SERVER_URL } from '../src/config';
 
 interface Message {
@@ -14,6 +15,7 @@ interface Message {
   isUser: boolean;
   timestamp: Date;
   data?: any;
+  isAudio?: boolean;
 }
 
 export default function PredictScreen() {
@@ -22,10 +24,13 @@ export default function PredictScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     requestLocationPermission();
+    requestAudioPermission();
   }, []);
 
   const requestLocationPermission = async () => {
@@ -34,9 +39,25 @@ export default function PredictScreen() {
       if (status === 'granted') {
         const loc = await Location.getCurrentPositionAsync({});
         setLocation({ lat: loc.coords.latitude, lon: loc.coords.longitude });
+        console.log('📍 Ubicación obtenida:', { lat: loc.coords.latitude, lon: loc.coords.longitude });
+      } else {
+        Alert.alert('Permiso denegado', 'Necesitamos acceso a tu ubicación');
       }
     } catch (error) {
       console.error('Error getting location:', error);
+    }
+  };
+
+  const requestAudioPermission = async () => {
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permiso requerido', 'Necesitamos acceso al micrófono para grabar audio');
+      } else {
+        console.log('🎤 Permisos de audio concedidos');
+      }
+    } catch (error) {
+      console.error('Error requesting audio permission:', error);
     }
   };
 
@@ -53,22 +74,253 @@ export default function PredictScreen() {
     }
   };
 
-  const getRiskIcon = (level: string): string => {
+  const getRiskIcon = (level: string): keyof typeof Ionicons.glyphMap => {
     switch (level?.toLowerCase()) {
       case 'alto':
-        return 'alert';
+        return 'alert-circle';
       case 'medio':
         return 'warning';
       case 'bajo':
-        return 'checkmark-done';
+        return 'checkmark-circle';
       default:
-        return 'help';
+        return 'help-circle';
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      // Si ya hay grabación, detenerla primero
+      if (recording) {
+        console.log('🧹 Limpiando grabación anterior...');
+        try {
+          await recording.stopAndUnloadAsync();
+          setRecording(null);
+          setIsRecording(false);
+          await new Promise(resolve => setTimeout(resolve, 300));
+        } catch (e) {
+          console.log('⚠️ No se pudo limpiar grabación anterior');
+          setRecording(null);
+          setIsRecording(false);
+        }
+      }
+
+      // Verificar y obtener ubicación PRIMERO
+      if (!location) {
+        console.log('📍 Ubicación no disponible, intentando obtener...');
+        try {
+          const loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced
+          });
+          setLocation({ lat: loc.coords.latitude, lon: loc.coords.longitude });
+          console.log('📍 Ubicación obtenida:', { lat: loc.coords.latitude, lon: loc.coords.longitude });
+        } catch (locError) {
+          console.error('📍 Error obteniendo ubicación:', locError);
+          Alert.alert('Ubicación requerida', 'Activa GPS en configuración del celular');
+          return;
+        }
+      }
+
+      console.log('🎤 Iniciando grabación...');
+      
+      // Configurar audio mode
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+      });
+
+      // Pequeño delay para asegurar liberación
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Crear nueva grabación con formato M4A
+      const { recording: newRecording } = await Audio.Recording.createAsync({
+        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        android: {
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC,
+          sampleRate: 44100,
+          numberOfChannels: 1,
+          bitRate: 128000,
+        },
+        ios: {
+          extension: '.m4a',
+          outputFormat: Audio.IOSOutputFormat.LINEARPCM,
+          audioQuality: Audio.IOSAudioQuality.HIGH,
+          sampleRate: 44100,
+          numberOfChannels: 1,
+          bitRate: 128000,
+          linearPCMBitDepth: 16,
+        },
+        web: {
+          mimeType: 'audio/mp4',
+          bitsPerSecond: 128000,
+        }
+      });
+
+      setRecording(newRecording);
+      setIsRecording(true);
+      console.log('🔴 Grabando...');
+    } catch (err) {
+      console.error('❌ Error al iniciar grabación:', err);
+      setRecording(null);
+      setIsRecording(false);
+      Alert.alert('Error de Micrófono', 'Intenta de nuevo. Si el error persiste, reinicia la app.');
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) {
+      console.log('⚠️ No hay grabación activa');
+      return;
+    }
+
+    try {
+      console.log('⏹️ Deteniendo grabación...');
+      setIsRecording(false);
+      await recording.stopAndUnloadAsync();
+
+      const uri = recording.getURI();
+      setRecording(null);
+
+      if (uri) {
+        console.log('📁 Audio guardado en:', uri);
+        await sendAudioMessage(uri);
+      } else {
+        Alert.alert('Error', 'No se pudo obtener el archivo de audio');
+      }
+    } catch (err) {
+      console.error('❌ Error al detener grabación:', err);
+      setRecording(null);
+      Alert.alert('Error', 'No se pudo procesar el audio. Intenta de nuevo.');
+    }
+  };
+
+  // Comprueba que el servidor responda (con timeout)
+  const checkServerAlive = async (timeout = 4000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    try {
+      const resp = await fetch(`${SERVER_URL.replace(/\/$/, '')}/`, { signal: controller.signal });
+      clearTimeout(id);
+      return resp.ok;
+    } catch (e) {
+      clearTimeout(id);
+      return false;
+    }
+  };
+
+  const sendAudioMessage = async (audioUri: string) => {
+    setLoading(true);
+
+    try {
+      if (!SERVER_URL) {
+        throw new Error('URL del servidor no configurada');
+      }
+
+      console.log('🌐 SERVER_URL:', SERVER_URL);
+      console.log('📍 Location:', location);
+      console.log('🎤 Audio URI:', audioUri);
+
+      // Health check rapido antes de enviar el audio
+      const alive = await checkServerAlive(4000);
+      console.log('🔎 Server alive:', alive);
+      if (!alive) {
+        throw new Error('No se puede conectar al servidor. Verifica WiFi/Firewall.');
+      }
+
+      // Crear mensaje de usuario con indicador de audio
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        text: '🎤 Mensaje de audio',
+        isUser: true,
+        timestamp: new Date(),
+        isAudio: true
+      };
+      setMessages(prev => [...prev, userMessage]);
+
+      // Preparar FormData - Manera correcta para React Native
+      const formData = new FormData();
+      
+      // El URI ya tiene la extensión .m4a, lo usamos directamente
+      formData.append('audio', {
+        uri: audioUri,
+        type: 'audio/m4a',
+        name: 'recording.m4a',
+      } as any);
+      formData.append('latitude', location!.lat.toString());
+      formData.append('longitude', location!.lon.toString());
+
+      console.log('📤 Enviando audio a:', `${SERVER_URL.replace(/\/$/, '')}/api/audio-weather`);
+      console.log('🎵 URI del audio:', audioUri);
+
+      const resp = await fetch(`${SERVER_URL.replace(/\/$/, '')}/api/audio-weather`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+
+      console.log('📥 Respuesta status:', resp.status);
+
+      if (!resp.ok) {
+        const errorText = await resp.text();
+        console.error('❌ Error del servidor:', errorText);
+        throw new Error(`Error del servidor: ${resp.status} - ${errorText}`);
+      }
+
+      const data = await resp.json();
+      console.log('✅ Datos recibidos:', data);
+
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: data.response || data.message || 'No se pudo obtener respuesta',
+        isUser: false,
+        timestamp: new Date(),
+        data: data.weather_data || data.result
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+      
+      if (data.result || data.weather_data) {
+        setResult(data.result || data.weather_data);
+      }
+
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+
+    } catch (err: any) {
+      console.error('❌ Error completo:', err);
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: `Lo siento, hubo un error al procesar el audio: ${err.message}. Por favor intenta de nuevo.`,
+        isUser: false,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleQuickPredict = async () => {
     if (!location) {
-      Alert.alert('Ubicación', 'Esperando permisos de ubicación...');
+      try {
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced
+        });
+        setLocation({ lat: loc.coords.latitude, lon: loc.coords.longitude });
+      } catch (err) {
+        Alert.alert('Ubicación', 'Por favor activa GPS en configuración');
+        return;
+      }
+    }
+
+    if (!location) {
+      Alert.alert('Ubicación', 'No se pudo obtener la ubicación');
       return;
     }
 
@@ -87,16 +339,21 @@ export default function PredictScreen() {
         return;
       }
 
+      console.log('📤 Enviando predicción rápida...');
+
       const resp = await fetch(`${SERVER_URL.replace(/\/$/, '')}/api/predict`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
+      if (!resp.ok) {
+        throw new Error(`Error del servidor: ${resp.status}`);
+      }
+
       const data = await resp.json();
       setResult(data.result || data);
 
-      // Agregar mensaje del sistema
       const newMessage: Message = {
         id: Date.now().toString(),
         text: 'Predicción generada para tu ubicación actual',
@@ -105,8 +362,10 @@ export default function PredictScreen() {
         data: data.result || data
       };
       setMessages(prev => [...prev, newMessage]);
+      
+      console.log('✅ Predicción obtenida');
     } catch (err: any) {
-      console.error('predict error', err);
+      console.error('❌ Error en predict:', err);
       Alert.alert('Error', err.message || 'Error al solicitar predicción');
     } finally {
       setLoading(false);
@@ -116,9 +375,17 @@ export default function PredictScreen() {
   const handleSendMessage = async () => {
     if (!inputText.trim() || loading) return;
 
+    // Verificar ubicación
     if (!location) {
-      Alert.alert('Ubicación requerida', 'Necesitamos tu ubicación para responder consultas climáticas.');
-      return;
+      console.log('📍 Intentando obtener ubicación...');
+      const loc = await Location.getCurrentPositionAsync({}).catch(() => null);
+      if (loc) {
+        setLocation({ lat: loc.coords.latitude, lon: loc.coords.longitude });
+        console.log('📍 Ubicación obtenida:', { lat: loc.coords.latitude, lon: loc.coords.longitude });
+      } else {
+        Alert.alert('Ubicación requerida', 'No pudimos obtener tu ubicación. Por favor actívala en configuración.');
+        return;
+      }
     }
 
     const userMessage: Message = {
@@ -137,12 +404,13 @@ export default function PredictScreen() {
         throw new Error('URL del servidor no configurada');
       }
 
-      // Enviar la pregunta al backend con contexto de ubicación
       const payload = {
         question: inputText.trim(),
         location: { lat: location.lat, lon: location.lon },
         timestamp: new Date().toISOString()
       };
+
+      console.log('📤 Enviando mensaje de texto...');
 
       const resp = await fetch(`${SERVER_URL.replace(/\/$/, '')}/api/chat-weather`, {
         method: 'POST',
@@ -155,6 +423,7 @@ export default function PredictScreen() {
       }
 
       const data = await resp.json();
+      console.log('✅ Respuesta recibida');
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -170,13 +439,12 @@ export default function PredictScreen() {
         setResult(data.result || data.weather_data);
       }
 
-      // Scroll al final
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
 
     } catch (err: any) {
-      console.error('chat error', err);
+      console.error('❌ Error en chat:', err);
       
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -236,6 +504,16 @@ export default function PredictScreen() {
     </View>
   );
 
+  const handleMicPress = async () => {
+    if (isRecording) {
+      // Si está grabando, detener
+      await stopRecording();
+    } else {
+      // Si no está grabando, iniciar
+      await startRecording();
+    }
+  };
+
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -253,7 +531,7 @@ export default function PredictScreen() {
             <Ionicons name="sparkles" size={28} color="#1976D2" />
             <View style={styles.headerText}>
               <Text style={styles.title}>Asistente Climático</Text>
-              <Text style={styles.subtitle}>Pregunta sobre el clima de cualquier día</Text>
+              <Text style={styles.subtitle}>Pregunta con texto o voz</Text>
             </View>
           </View>
         </View>
@@ -290,7 +568,7 @@ export default function PredictScreen() {
               <Ionicons name="chatbubbles-outline" size={60} color="rgba(25, 118, 210, 0.3)" />
               <Text style={styles.emptyStateTitle}>Haz tu primera consulta</Text>
               <Text style={styles.emptyStateText}>
-                Pregunta sobre el clima de cualquier día
+                Pregunta con texto o mantén presionado el micrófono
               </Text>
               <View style={styles.examplesContainer}>
                 <Text style={styles.examplesTitle}>Ejemplos:</Text>
@@ -312,13 +590,37 @@ export default function PredictScreen() {
           {loading && (
             <View style={styles.loadingMessage}>
               <ActivityIndicator color="#1976D2" />
-              <Text style={styles.loadingText}>Analizando...</Text>
+              <Text style={styles.loadingText}>
+                {isRecording ? 'Grabando...' : 'Analizando...'}
+              </Text>
             </View>
           )}
         </ScrollView>
 
         {/* Input Area */}
         <View style={styles.inputContainer}>
+          <TouchableOpacity
+            onPress={handleMicPress}
+            disabled={loading}
+            style={[
+              styles.micButton,
+              isRecording && styles.micButtonRecording
+            ]}
+          >
+            <LinearGradient
+              colors={isRecording ? ['#FF5252', '#FF1744'] : ['#1976D2', '#1565C0']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micButtonGradient}
+            >
+              <Ionicons 
+                name={isRecording ? "stop" : "mic"} 
+                size={24} 
+                color="#FFF" 
+              />
+            </LinearGradient>
+          </TouchableOpacity>
+
           <TextInput
             style={styles.input}
             placeholder="Pregunta sobre el clima..."
@@ -327,19 +629,20 @@ export default function PredictScreen() {
             onChangeText={setInputText}
             multiline
             maxLength={200}
-            editable={!loading}
+            editable={!loading && !isRecording}
             onSubmitEditing={handleSendMessage}
           />
+          
           <TouchableOpacity
             onPress={handleSendMessage}
-            disabled={loading || !inputText.trim()}
+            disabled={loading || !inputText.trim() || isRecording}
             style={[
               styles.sendButton,
-              (!inputText.trim() || loading) && styles.sendButtonDisabled
+              (!inputText.trim() || loading || isRecording) && styles.sendButtonDisabled
             ]}
           >
             <LinearGradient
-              colors={inputText.trim() && !loading ? ['#1976D2', '#1565C0'] : ['#B0BEC5', '#90A4AE']}
+              colors={inputText.trim() && !loading && !isRecording ? ['#1976D2', '#1565C0'] : ['#B0BEC5', '#90A4AE']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.sendButtonGradient}
@@ -490,6 +793,21 @@ const styles = StyleSheet.create({
     borderTopColor: '#E0E0E0',
     alignItems: 'flex-end',
     gap: 10
+  },
+  micButton: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 22,
+    overflow: 'hidden'
+  },
+  micButtonRecording: {
+    transform: [{ scale: 1.1 }]
+  },
+  micButtonGradient: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   input: {
     flex: 1,
