@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Dimensions, Linking, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { SERVER_URL } from '../src/config';
@@ -71,6 +71,21 @@ export default function VolcanoesScreen() {
     }
   };
 
+  const openInMaps = (volcano: Volcano) => {
+    const label = encodeURIComponent(volcano.name);
+    const url = Platform.select({
+      ios: `maps:0,0?q=${label}@${volcano.lat},${volcano.lon}`,
+      android: `geo:0,0?q=${volcano.lat},${volcano.lon}(${label})`,
+      default: `https://www.google.com/maps/search/?api=1&query=${volcano.lat},${volcano.lon}`
+    });
+
+    Linking.openURL(url).catch(err => {
+      console.error('Error opening maps:', err);
+      // Fallback to Google Maps web
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${volcano.lat},${volcano.lon}`);
+    });
+  };
+
   const renderVolcano = ({ item, index }: { item: Volcano; index: number }) => {
     const statusGradient = getStatusGradient(item.status);
     
@@ -130,7 +145,10 @@ export default function VolcanoesScreen() {
                 Actualizado hoy
               </Text>
             </View>
-            <TouchableOpacity style={styles.mapButton}>
+            <TouchableOpacity 
+              style={styles.mapButton}
+              onPress={() => openInMaps(item)}
+            >
               <Ionicons name="map" size={14} color="#1565C0" />
               <Text style={styles.mapButtonText}>Ver mapa</Text>
             </TouchableOpacity>
