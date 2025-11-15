@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../security/supabase';
+import { CommonActions } from '@react-navigation/native';
 
 export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState('');
@@ -10,70 +11,70 @@ export default function LoginScreen({ navigation }: any) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Reemplaza la función handleLogin con esta versión corregida:
+  const handleLogin = async () => {
+    if (email.trim() === '' || password.trim() === '') {
+      Alert.alert('Campos incompletos', 'Por favor completa todos los campos');
+      return;
+    }
 
-const handleLogin = async () => {
-  if (email.trim() === '' || password.trim() === '') {
-    Alert.alert('Campos incompletos', 'Por favor completa todos los campos');
-    return;
-  }
+    setLoading(true);
 
-  setLoading(true);
-  
-  try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(), // Agregado trim() para evitar espacios
-      password: password,
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
+      });
 
-    if (error) throw error;
+      if (error) throw error;
 
-    // Verificar si existe el perfil
-    const { data: existingProfile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', data.user.id)
-      .single();
-
-    // Crear perfil si no existe
-    if (!existingProfile) {
-      const { error: profileError } = await supabase
+      const { data: existingProfile } = await supabase
         .from('profiles')
-        .insert([
-          {
-            id: data.user.id,
-            full_name: data.user.user_metadata?.full_name || 'Usuario',
-            email: data.user.email,
-            avatar_url: null,
-            created_at: new Date().toISOString(),
-          }
-        ]);
+        .select('id')
+        .eq('id', data.user.id)
+        .single();
 
-      if (profileError) {
-        console.log('Error al crear perfil:', profileError);
+      if (!existingProfile) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert([
+            {
+              id: data.user.id,
+              full_name: data.user.user_metadata?.full_name || 'Usuario',
+              email: data.user.email,
+              avatar_url: null,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+        if (profileError) {
+          console.log('Error al crear perfil:', profileError);
+        }
       }
-    }
 
-    // ✅ ESTA ES LA LÍNEA QUE FALTABA - Navegar después del login exitoso
-    navigation.replace('Home'); // O el nombre de tu pantalla principal
-    
-  } catch (error: any) {
-    let errorMessage = 'Ocurrió un error al iniciar sesión';
-    
-    if (error.message.includes('Invalid login credentials')) {
-      errorMessage = 'Credenciales inválidas. Verifica tu correo y contraseña';
-    } else if (error.message.includes('Email not confirmed')) {
-      errorMessage = 'Por favor confirma tu correo electrónico';
-    } else if (error.message.includes('Invalid email')) {
-      errorMessage = 'El correo electrónico no es válido';
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'MainTabs' }],
+        })
+      );
+
+    } catch (error: any) {
+      let errorMessage = 'Ocurrió un error al iniciar sesión';
+
+      if (error.message.includes('Invalid login credentials')) {
+        errorMessage = 'Credenciales inválidas. Verifica tu correo y contraseña';
+      } else if (error.message.includes('Email not confirmed')) {
+        errorMessage = 'Por favor confirma tu correo electrónico';
+      } else if (error.message.includes('Invalid email')) {
+        errorMessage = 'El correo electrónico no es válido';
+      }
+
+      Alert.alert('Error de autenticación', errorMessage);
+      console.error('Error completo:', error);
+    } finally {
+      setLoading(false);
     }
-    
-    Alert.alert('Error de autenticación', errorMessage);
-    console.error('Error completo:', error); // Para debugging
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   return (
     <View style={styles.container}>
@@ -84,7 +85,7 @@ const handleLogin = async () => {
         >
           <Ionicons name="chevron-back" size={28} color="#1B5E20" />
         </TouchableOpacity>
-        
+
         <View style={styles.titleSection}>
           <Text style={styles.mainTitle}>¡Hola de nuevo!</Text>
           <Text style={styles.subtitle}>Nos alegra verte 👋</Text>
@@ -196,181 +197,33 @@ const handleLogin = async () => {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FAFAFA',
-  },
-  topSection: {
-    paddingTop: 50,
-    paddingHorizontal: 24,
-    paddingBottom: 30,
-    backgroundColor: '#FFFFFF',
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F1F8E9',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  titleSection: {
-    marginBottom: 20,
-  },
-  mainTitle: {
-    fontSize: 36,
-    fontWeight: '900',
-    color: '#1B5E20',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 18,
-    color: '#666',
-    fontWeight: '500',
-  },
-  decorativeElements: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: '100%',
-    height: '100%',
-  },
-  circle1: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(67, 160, 71, 0.05)',
-    top: 40,
-    right: -30,
-  },
-  circle2: {
-    position: 'absolute',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(129, 199, 132, 0.08)',
-    top: 120,
-    right: 60,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 10,
-    paddingBottom: 30,
-  },
-  formCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  inputGroup: {
-    marginBottom: 24,
-  },
-  floatingLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 10,
-  },
-  labelText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#2E7D32',
-  },
-  modernInput: {
-    borderWidth: 2,
-    borderColor: '#E8F5E9',
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    fontSize: 16,
-    color: '#1B5E20',
-    backgroundColor: '#FAFAFA',
-    fontWeight: '500',
-  },
-  passwordContainer: {
-    position: 'relative',
-  },
-  eyeButton: {
-    position: 'absolute',
-    right: 16,
-    top: 16,
-    padding: 4,
-  },
-  forgotLink: {
-    alignSelf: 'flex-end',
-    marginBottom: 28,
-  },
-  forgotLinkText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#43A047',
-  },
-  primaryButton: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#43A047',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 8,
-    marginBottom: 24,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonGradient: {
-    paddingVertical: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  registerSection: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  noAccountText: {
-    fontSize: 15,
-    color: '#666',
-    fontWeight: '500',
-  },
-  registerLink: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#43A047',
-  },
-  securityBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 24,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    alignSelf: 'center',
-  },
-  securityText: {
-    fontSize: 13,
-    color: '#666',
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: '#FAFAFA' },
+  topSection: { paddingTop: 50, paddingHorizontal: 24, paddingBottom: 30, backgroundColor: '#FFFFFF' },
+  backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F1F8E9', justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
+  titleSection: { marginBottom: 20 },
+  mainTitle: { fontSize: 36, fontWeight: '900', color: '#1B5E20', marginBottom: 8 },
+  subtitle: { fontSize: 18, color: '#666', fontWeight: '500' },
+  decorativeElements: { position: 'absolute', top: 0, right: 0, width: '100%', height: '100%' },
+  circle1: { position: 'absolute', width: 120, height: 120, borderRadius: 60, backgroundColor: 'rgba(67, 160, 71, 0.05)', top: 40, right: -30 },
+  circle2: { position: 'absolute', width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(129, 199, 132, 0.08)', top: 120, right: 60 },
+  keyboardView: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 10, paddingBottom: 30 },
+  formCard: { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 3 },
+  inputGroup: { marginBottom: 24 },
+  floatingLabel: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  labelText: { fontSize: 14, fontWeight: '700', color: '#2E7D32' },
+  modernInput: { borderWidth: 2, borderColor: '#E8F5E9', borderRadius: 14, paddingVertical: 16, paddingHorizontal: 18, fontSize: 16, color: '#1B5E20', backgroundColor: '#FAFAFA', fontWeight: '500' },
+  passwordContainer: { position: 'relative' },
+  eyeButton: { position: 'absolute', right: 16, top: 16, padding: 4 },
+  forgotLink: { alignSelf: 'flex-end', marginBottom: 28 },
+  forgotLinkText: { fontSize: 14, fontWeight: '700', color: '#43A047' },
+  primaryButton: { borderRadius: 16, overflow: 'hidden', shadowColor: '#43A047', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 16, elevation: 8, marginBottom: 24 },
+  buttonDisabled: { opacity: 0.6 },
+  buttonGradient: { paddingVertical: 18, alignItems: 'center', justifyContent: 'center' },
+  buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '800', letterSpacing: 0.5 },
+  registerSection: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 },
+  noAccountText: { fontSize: 15, color: '#666', fontWeight: '500' },
+  registerLink: { fontSize: 15, fontWeight: '800', color: '#43A047' },
+  securityBadge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24, paddingVertical: 12, paddingHorizontal: 20, backgroundColor: '#FFFFFF', borderRadius: 20, alignSelf: 'center' },
+  securityText: { fontSize: 13, color: '#666', fontWeight: '600' },
 });
